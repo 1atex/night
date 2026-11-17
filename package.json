@@ -1,0 +1,16 @@
+{
+  "name": "night-browser",
+  "version": "0.18.2",
+  "private": true,
+  "type": "module",
+  "description": "Night desktop browser on Firefox/Gecko",
+  "license": "MPL-2.0",
+  "scripts": {
+    "test": "node --test tests/night/*.test.mjs",
+    "test:night": "node --test tests/night/*.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1atex/night.git"
+  }
+}

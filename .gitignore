@@ -1,0 +1,15 @@
+engine/
+node_modules/
+.surfer/
+.dotbuild/
+__pycache__/
+dist/
+target/
+venv/
+mozconfig
+*.log
+test-artifacts/
+*.csv
+
+services/together/.env
+services/together/data/

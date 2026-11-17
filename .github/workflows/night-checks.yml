@@ -1,0 +1,25 @@
+name: Night checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  logic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm run test:night
+      - run: python3 -m unittest discover -s tests/preview
+  together-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/server/docker.sh
+      - run: bash tests/server/nginx.sh
+      - run: python3 tests/server/turn.py
