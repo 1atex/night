@@ -10,6 +10,7 @@ from pathlib import Path
 
 import psutil
 from marionette_driver.marionette import Marionette
+from rendering import PAGE as RENDER_PAGE
 from smoke import wait_for
 
 MIB = 1024 ** 2
@@ -27,6 +28,8 @@ class Fixture(BaseHTTPRequestHandler):
         elif self.path == "/video":
             body = b'<!doctype html><title>Video fixture</title><video src="/watch.webm" autoplay muted loop playsinline></video>'
             content_type = "text/html"
+        elif self.path == "/rendering":
+            body, content_type = RENDER_PAGE, "text/html"
         else:
             body = b'''<!doctype html><title>Memory fixture</title><link rel="icon" href="data:,"><h1>Night memory fixture</h1><script>window.allocation = new Uint8Array(32 * 1024 * 1024); window.allocation.fill(73); document.title = 'Ready ' + location.pathname;</script>'''
             content_type = "text/html"
@@ -114,7 +117,40 @@ def diagnostic_samples(browser):
     return {"total": summarize(), "roles": {role: summarize(role) for role in roles}, "samples": measurements}
 
 
-def measure(binary, app_ini, url, output, label, diagnostic=False):
+def profile_rendering(browser, url, destination):
+    browser.execute_script("Services.wm.getMostRecentWindow('navigator:browser').restore();")
+    started = browser.execute_async_script("""
+      const done = arguments[arguments.length - 1];
+      Services.profiler.StartProfiler(262144, 1, ['js', 'stackwalk', 'cpu', 'memory'],
+        ['GeckoMain', 'Compositor', 'Renderer', 'MediaDecoder', 'MediaPDecoder'])
+        .then(() => done(true), error => done(String(error)));
+    """)
+    if started is not True:
+        raise RuntimeError(f"Could not start Gecko Profiler: {started}")
+    try:
+        browser.set_context("content")
+        browser.navigate(url + "/video")
+        wait_for(lambda: browser.execute_script("return document.querySelector('video').currentTime > 0;"))
+        time.sleep(4)
+        browser.navigate(url + "/rendering")
+        wait_for(lambda: browser.execute_script("return typeof window.wrappedJSObject.measure === 'function';"))
+        rounds = [browser.execute_script("return window.wrappedJSObject.measure();") for _ in range(7)]
+        browser.set_context("chrome")
+        written = browser.execute_async_script("""
+          const done = arguments[arguments.length - 1];
+          Services.profiler.dumpProfileToFileAsync(arguments[0]).then(() => done(true), error => done(String(error)));
+        """, script_args=[str(destination.resolve())])
+        if written is not True:
+            raise RuntimeError(f"Could not save Gecko profile: {written}")
+        return {"file": destination.name, "rounds": rounds,
+                "js_ms_median": statistics.median(row["js"] for row in rounds[1:]),
+                "style_layout_ms_median": statistics.median(row["styleLayout"] for row in rounds[1:])}
+    finally:
+        browser.set_context("chrome")
+        browser.execute_async_script("const done = arguments[arguments.length - 1]; Services.profiler.StopProfiler().then(() => done(true));")
+
+
+def measure(binary, app_ini, url, output, label, diagnostic=False, profile=False):
     prefs = {"night.onboarding.completed": True, "browser.aboutwelcome.enabled": False, "browser.preonboarding.enabled": False, "browser.bypassAutoTriggerActions": True, "termsofuse.bypassNotification": True, "browser.shell.checkDefaultBrowser": False, "browser.startup.homepage_override.mstone": "ignore"}
     if diagnostic:
         prefs["night.memory.enabled"] = False
@@ -171,9 +207,12 @@ def measure(binary, app_ini, url, output, label, diagnostic=False):
                 buildID: Services.appinfo.platformBuildID, locale: Services.locale.appLocaleAsBCP47,
                 preallocated: Services.prefs.getIntPref('dom.ipc.processPrelaunch.fission.number', -1)};
             """)
-            return {"runtime": runtime, "startup_ms": startup_ms, "loaded_tabs": loaded, "idle": idle,
-                    "video": {"memory": playing, "start": video_start, "end": video_end},
-                    "active": active, "minimized": minimized}
+            result = {"runtime": runtime, "startup_ms": startup_ms, "loaded_tabs": loaded, "idle": idle,
+                      "video": {"memory": playing, "start": video_start, "end": video_end},
+                      "active": active, "minimized": minimized}
+            if profile:
+                result["profile"] = profile_rendering(browser, url, output / f"{label}-profile.json")
+            return result
         browser.minimize_window()
         time.sleep(3)
         before = samples(pid)
@@ -206,7 +245,7 @@ def measure(binary, app_ini, url, output, label, diagnostic=False):
         browser.instance = None
 
 
-def run(stock, night, app_ini, output, diagnostic):
+def run(stock, night, app_ini, output, diagnostic, profile):
     output.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -215,8 +254,8 @@ def run(stock, night, app_ini, output, diagnostic):
         result = {"platform": platform.platform(), "headless": os.environ.get("MOZ_HEADLESS") == "1", "method": "Browser minimized before measurement; headless mode is recorded separately. Fresh profiles, 7 same-origin local tabs, each allocates and touches 32 MiB. Median of 5 samples at 1 second intervals; all descendants included. Night idle clock advanced 15 minutes; active tab and one explicit exception protected. No forced GC or working-set trimming. Windows USS is private working set; private bytes is commit. This is not a real-site workload or rendering benchmark."}
         if diagnostic:
             result["method"] = "Fresh profiles, no add-ons, localhost VP9 video and seven 32 MiB HTML fixtures. Five samples per phase. All seven tabs remain loaded. Roles from Gecko, bytes and CPU from psutil. CPU delta counts only processes present at both ends of the sample window. Private commit is Windows-only."
-        result["firefox"] = measure(stock, None, url, output, "firefox", diagnostic)
-        result["night"] = measure(night, app_ini, url, output, "night", diagnostic)
+        result["firefox"] = measure(stock, None, url, output, "firefox", diagnostic, profile)
+        result["night"] = measure(night, app_ini, url, output, "night", diagnostic, profile)
         if diagnostic:
             assert result["firefox"]["runtime"]["gecko"] == result["night"]["runtime"]["gecko"]
         (output / ("process-memory.json" if diagnostic else "memory.json")).write_text(json.dumps(result, indent=2))
@@ -238,5 +277,6 @@ if __name__ == "__main__":
     parser.add_argument("--app-ini", required=True)
     parser.add_argument("--output", type=Path, default=Path("test-artifacts"))
     parser.add_argument("--diagnostic", action="store_true")
+    parser.add_argument("--profile-rendering", action="store_true")
     args = parser.parse_args()
-    run(args.stock, args.night, args.app_ini, args.output, args.diagnostic)
+    run(args.stock, args.night, args.app_ini, args.output, args.diagnostic or args.profile_rendering, args.profile_rendering)

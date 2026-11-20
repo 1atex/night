@@ -16,18 +16,33 @@ export class NightTogetherView {
     this.#microphone=this.#buttonNode('',()=>this.#toggleMicrophone(),{id:'night-together-microphone'});
     this.#notices=this.#buttonNode('',()=>NightFriendNoticeViews.open(window),{id:'night-together-notices','aria-label':'Уведомления друзей',title:'Уведомления друзей'});this.#dock.append(this.#button,this.#microphone,this.#notices);parent.append(this.#dock);
     const doc=window.document;this.#panel=doc.createXULElement('panel');this.#panel.id='night-together-panel';this.#panel.setAttribute('role','dialog');this.#panel.setAttribute('aria-label','Совместный просмотр');this.#panel.setAttribute('type','arrow');this.#panel.setAttribute('consumeoutsideclicks','false');doc.getElementById('mainPopupSet').append(this.#panel);
-    this.#panel.addEventListener('popuphidden',()=>{this.#button.setAttribute('aria-expanded','false');window.clearInterval(this.#timer);this.#timer=null;});
+    this.#panel.addEventListener('popuphidden', event => {
+      if (event.target === this.#panel) this.#releasePanel();
+    });
     for(const topic of topics)Services.obs.addObserver(this,topic);for(const pref of ['night.together.fullscreen-controls','night.together.glass'])Services.prefs.addObserver(pref,this);window.addEventListener('keydown',this,true);this.observe();
   }
   #element(tag,text='',attrs={}){const node=this.#window.document.createElementNS(XHTML,tag);node.textContent=text;for(const [key,value]of Object.entries(attrs))node.setAttribute(key,value);return node;}
   #buttonNode(text,run,attrs={}){const button=this.#element('button',text,{type:'button',...attrs});if(attrs['data-icon'])button.style.setProperty('--together-icon',`url("chrome://browser/content/night/icons/${attrs['data-icon']}.svg")`);button.addEventListener('click',()=>Promise.resolve().then(run).catch(error=>this.#message(error.message)));return button;}
   #message(text){if(this.#status&&this.#panel.state==='open')this.#status.textContent=text;else if(this.#alive)this.#window.gNightBrowser.shell.notify(text);}
   #close(){this.#panel.hidePopup();}
+  #releasePanel() {
+    this.#window.clearInterval(this.#timer);
+    this.#timer = null;
+    this.#rows.clear();
+    this.#body = this.#input = this.#status = this.#video = null;
+    this.#panel.replaceChildren();
+    this.#button.setAttribute('aria-expanded', 'false');
+  }
   async open(){
-    if(PrivateBrowsingUtils.isWindowPrivate(this.#window))return;
+    if(!this.#alive||this.#body||PrivateBrowsingUtils.isWindowPrivate(this.#window))return;
     this.#signature='';this.#body=this.#element('div','',{class:'night-together-body'});this.#status=this.#element('p','Получаем состояние…',{role:'status',class:'night-together-status'});this.#body.append(this.#status);this.#panel.replaceChildren(this.#body);this.#button.setAttribute('aria-expanded','true');this.#panel.openPopup(this.#button,'before_start');
-    this.#video=await NightTogether.inspect(this.#window);if(this.#video&&!NightTogether.cachedState?.room)this.#url=this.#video.url;
-    await this.#refresh();if(this.#alive&&this.#panel.state!=='closed')this.#timer=this.#window.setInterval(()=>this.#refresh(),3000);
+    const body = this.#body;
+    const video = await NightTogether.inspect(this.#window);
+    if (body !== this.#body) return;
+    this.#video = video;
+    if (video && !NightTogether.cachedState?.room) this.#url = video.url;
+    await this.#refresh();
+    if (body === this.#body) this.#timer = this.#window.setInterval(() => this.#refresh(), 3000);
   }
   async #refresh(){if(this.#busy||!this.#alive)return;this.#busy=true;try{await NightTogether.state();this.#render();}catch(error){this.#message(error.message);}finally{this.#busy=false;}}
   async #act(body){await NightTogether.action(body);this.#render();}
@@ -76,7 +91,7 @@ export class NightTogetherView {
     if(!this.#body||!['open','showing'].includes(this.#panel.state))return;
     const state=NightTogether.cachedState,room=state?.room,signature=JSON.stringify([state?.id,room?.id,room?.owner,room?.url,room?.title,room?.poster,room?.members,room?.requests,room?.invited?.map(p=>p.id),room?.mode,!!NightTogether.castSession,state?.invitations,state?.friends?.map(({online,...person})=>person),state?.incoming,this.#video,this.#editor]);
     if(signature!==this.#signature){
-      this.#signature=signature;this.#rows.clear();this.#body.replaceChildren();const head=this.#element('div','',{class:'night-together-heading'});head.append(this.#element('strong',room?`Вместе · ${room.members.length}/8`:'Позвать смотреть'),this.#buttonNode('',()=>this.#close(),{'aria-label':'Закрыть панель','data-icon':'close','data-icon-only':'true'}));this.#status=this.#element('p','',{role:'status',class:'night-together-status'});this.#body.append(head,this.#status);
+      this.#signature=signature;this.#rows.clear();this.#input=null;this.#body.replaceChildren();const head=this.#element('div','',{class:'night-together-heading'});head.append(this.#element('strong',room?`Вместе · ${room.members.length}/8`:'Позвать смотреть'),this.#buttonNode('',()=>this.#close(),{'aria-label':'Закрыть панель','data-icon':'close','data-icon-only':'true'}));this.#status=this.#element('p','',{role:'status',class:'night-together-status'});this.#body.append(head,this.#status);
       if(!state){this.#body.append(this.#element('p','Подключи профиль, чтобы приглашать друзей.'),this.#buttonNode('Подключить Together',async()=>{await NightTogether.connect(Services.prefs.getStringPref('night.together.server','https://browser.night-watchers.com'),this.#window);await this.#refresh();},{'data-icon':'people','data-accent':'primary'}));return;}
       for(const invite of state.invitations??[]){const incoming=this.#element('section','',{class:'together-invitation'});incoming.append(this.#element('p',(state.people?.[invite.owner]?.name??'Друг')+' приглашает смотреть'),this.#videoCard({title:invite.title||'Видео',poster:invite.poster,subtitle:'Приглашение на просмотр'}),this.#buttonNode('Присоединиться',async()=>{await this.#act({type:'room-join',room:invite.id});await this.#watch();},{'data-icon':'play','data-accent':'primary','data-join-room':invite.id}));this.#body.append(incoming);}
       const info=room?{url:room.url,title:room.title||new URL(room.url).hostname,poster:room.poster}:this.#video&&watchURL(this.#video.url)===watchURL(this.#url)?this.#video:{url:this.#url,title:watchURL(this.#url)?new URL(this.#url).hostname:'Видео не выбрано'};
@@ -113,5 +128,5 @@ export class NightTogetherView {
     this.#notices.toggleAttribute('data-unread',NightFriendNotices.inbox.length>0);this.#microphone.hidden=!state?.room;this.#microphone.disabled=this.#microphoneConnecting;this.#microphone.toggleAttribute('data-muted',!communication?.microphone);this.#microphone.setAttribute('aria-pressed',String(communication?.microphone===true));this.#microphone.title=(communication?.microphone?'Выключить микрофон':'Включить микрофон')+' · Ctrl+Alt+M';this.#microphone.setAttribute('aria-label',this.#microphone.title);this.#render();
   }
   handleEvent(event){if(event.type==='keydown'&&event.ctrlKey&&event.altKey&&!event.shiftKey&&!event.metaKey&&event.code==='KeyM'&&NightTogether.cachedState?.room&&!PrivateBrowsingUtils.isWindowPrivate(this.#window)&&Services.prefs.getBoolPref('night.together.microphone-shortcut',true)){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)this.#toggleMicrophone().catch(error=>this.#message(error.message));}}
-  destroy(){this.#alive=false;for(const pref of ['night.together.fullscreen-controls','night.together.glass'])Services.prefs.removeObserver(pref,this);this.#window.clearInterval(this.#timer);this.#window.removeEventListener('keydown',this,true);for(const topic of topics)Services.obs.removeObserver(this,topic);this.#panel.remove();this.#dock.remove();}
+  destroy(){this.#alive=false;for(const pref of ['night.together.fullscreen-controls','night.together.glass'])Services.prefs.removeObserver(pref,this);this.#releasePanel();this.#window.removeEventListener('keydown',this,true);for(const topic of topics)Services.obs.removeObserver(this,topic);this.#panel.remove();this.#dock.remove();}
 }

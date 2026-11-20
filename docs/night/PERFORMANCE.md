@@ -70,3 +70,51 @@ Useful existing controls:
 - Compare extensions separately with the same video, account, quality, viewport and playback position. Keep hardware acceleration enabled for the baseline; [Mozilla documents](https://support.mozilla.org/en-US/kb/firefox-uses-too-much-memory-or-cpu-resources) that it can reduce CPU and memory use.
 
 The next valid experiment needs a real Windows playback baseline: identify all process roles in `about:processes`; collect `about:memory` and a Gecko profile; record codec, resolution, frame drops and buffered seconds; compare short and sustained playback plus seeking, including a slower network. Judge private working set and commit alongside smoothness. A flat stable allocation is different from growth after repeated videos. Do not infer a leak or an engine fix from a single Task Manager total.
+
+## Windows process baseline — 2026-11-20
+
+The Windows comparison uses Firefox 160.0 and Night on the same runner with fresh
+Russian profiles, identical `xul.dll` hashes and no user extensions. It takes five
+samples in each phase. All seven fixture tabs stay loaded. The video is a local
+320×180 test clip.
+
+| Private working set, MiB | Firefox | Night |
+| --- | ---: | ---: |
+| Idle | 417.80 | 401.06 |
+| Playing video | 425.49 | 411.26 |
+| Seven tabs, active | 660.09 | 598.24 |
+| Seven tabs, minimized | 629.71 | 563.52 |
+| Web content processes, seven tabs active | 280.04 | 280.11 |
+| GPU process, playing video | 23.48 | 42.77 |
+
+Both browsers decoded 61 frames and dropped zero during the playback sample.
+The GPU row measures private CPU-addressable memory of the GPU process.
+Dedicated video memory requires a separate measurement. The active web content
+result is effectively equal on this fixture. Differences in reserve processes,
+the home page and browser UI contribute to the total. One CI run and the local
+clip cannot establish a result for YouTube, Gmail or a user's installed add-ons.
+
+The [run report](https://github.com/1atex/night/actions/runs/44659136806) contains
+`process-memory.json` in the `gecko-windows-baseline` artifact. It has per-PID
+samples, Gecko process roles, private commit and CPU time. To repeat it locally,
+install `tests/native/requirements.txt` and run:
+
+```powershell
+python tests/native/memory.py --stock C:/Firefox/firefox.exe --night C:/Night/runtime/NightBrowser.exe --app-ini C:/Night/runtime/browser/application.ini --output test-artifacts --diagnostic
+```
+
+Add `--profile-rendering` to record Gecko Profiler captures of playback and the
+HTML/JS/CSS workload after the memory samples. Open the resulting profile JSON
+in Firefox Profiler to inspect the individual threads. These captures use local
+fixtures and fresh profiles.
+
+## Gecko built from source
+
+The [Gecko source candidate workflow](../../.github/workflows/gecko-source.yml)
+checks the Firefox source archive against the pinned SHA-256, builds with
+MozillaBuild and `mach build`, then runs `mach package`. The Night packager
+checks the Gecko version and Mozilla revision. The workflow checks browser
+startup and compares Night to the Firefox it just built. The portable candidate
+is an Actions artifact. The candidate and Mozilla's release have different compiler
+configurations. Comparisons of engine changes need two source builds with the
+same configuration.
