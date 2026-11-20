@@ -137,10 +137,13 @@ jobs:
           path: dist/night-gecko-source-windows-x64.zip
           if-no-files-found: error
           compression-level: 0
+      - name: Collect compiler logs
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force test-artifacts | Out-Null
+          Get-ChildItem C:/gecko -Filter '*.log' -ErrorAction SilentlyContinue | Copy-Item -Destination test-artifacts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gecko-source-measurements
-          path: |
-            test-artifacts/
-            C:/gecko/*.log
+          path: test-artifacts/
