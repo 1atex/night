@@ -1,4 +1,4 @@
-param([switch] $ConfigureOnly)
+param([Parameter(Mandatory)] [ValidateSet('tools', 'source', 'configure', 'build')] [string] $Phase)
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
@@ -17,14 +17,23 @@ function Get-PinnedFile($Uri, $Path, $Sha256) {
     }
 }
 
-Get-PinnedFile 'https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-4.2.1.exe' $setup '8ef5b3d2087e4867dc75bf19f5e62f12e917f518239415723cc70896b6f1e3d8'
-$installer = Start-Process $setup -ArgumentList '/S', "/D=$env:MOZILLABUILD" -Wait -PassThru
-if ($installer.ExitCode -ne 0) { throw "MozillaBuild installation failed ($($installer.ExitCode))" }
 $msys = "$env:MOZILLABUILD/msys2/usr/bin"
-if (!(Test-Path "$msys/sh.exe")) { throw "MozillaBuild shell is missing" }
+if ($Phase -eq 'tools') {
+    Get-PinnedFile 'https://ftp.mozilla.org/pub/mozilla/libraries/win32/MozillaBuildSetup-4.2.1.exe' $setup '8ef5b3d2087e4867dc75bf19f5e62f12e917f518239415723cc70896b6f1e3d8'
+    $installer = Start-Process $setup -ArgumentList '/S', "/D=$env:MOZILLABUILD" -Wait -PassThru
+    if ($installer.ExitCode -ne 0) { throw "MozillaBuild installation failed ($($installer.ExitCode))" }
+    if (!(Test-Path "$msys/sh.exe")) { throw "MozillaBuild shell is missing" }
+    return
+}
 
-Get-PinnedFile $pin.source_archive.url $archive $pin.source_archive.sha256
-tar.exe -xf $archive --strip-components 1 -C "$root/src"
+if ($Phase -eq 'source') {
+    Get-PinnedFile $pin.source_archive.url $archive $pin.source_archive.sha256
+    tar.exe -xf $archive --strip-components 1 -C "$root/src"
+    if (!(Test-Path "$root/src/mach")) { throw "Source archive did not contain mach" }
+    return
+}
+
+if (!(Test-Path "$msys/sh.exe")) { throw "MozillaBuild shell is missing" }
 $env:MOZ_SOURCE_REPO = ($pin.source -split '/rev/')[0]
 $env:MOZ_SOURCE_CHANGESET = $pin.revision
 $env:MOZCONFIG = "$root/src/mozconfig"
@@ -32,12 +41,12 @@ $env:Path = "$msys;$env:MOZILLABUILD/bin;$env:Path"
 Copy-Item "$PSScriptRoot/windows.mozconfig" $env:MOZCONFIG
 Push-Location "$root/src"
 try {
-    if ($ConfigureOnly) {
-        python mach configure 2>&1 | Tee-Object -FilePath "$root/configure.log"
+    if ($Phase -eq 'configure') {
+        python -u mach configure 2>&1 | Tee-Object -FilePath "$root/configure.log"
         return
     }
-    python mach build 2>&1 | Tee-Object -FilePath "$root/build.log"
-    python mach package 2>&1 | Tee-Object -FilePath "$root/package.log"
+    python -u mach build 2>&1 | Tee-Object -FilePath "$root/build.log"
+    python -u mach package 2>&1 | Tee-Object -FilePath "$root/package.log"
 } finally {
     Pop-Location
 }

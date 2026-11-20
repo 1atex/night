@@ -78,8 +78,16 @@ jobs:
         with:
           path: C:\gecko-state
           key: gecko-windows-toolchains-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/windows.mozconfig') }}
+      - name: Install pinned MozillaBuild
+        run: ./scripts/gecko/build-windows.ps1 -Phase tools
+      - name: Fetch and verify Gecko sources
+        run: ./scripts/gecko/build-windows.ps1 -Phase source
+      - name: Configure pinned Gecko
+        if: inputs.phase == 'configure'
+        run: ./scripts/gecko/build-windows.ps1 -Phase configure
       - name: Compile pinned Gecko
-        run: ./scripts/gecko/build-windows.ps1 -ConfigureOnly:('${{ inputs.phase }}' -eq 'configure')
+        if: inputs.phase != 'configure'
+        run: ./scripts/gecko/build-windows.ps1 -Phase build
       - name: Package candidate with Night
         if: inputs.phase != 'configure'
         run: |
