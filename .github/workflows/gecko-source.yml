@@ -78,15 +78,31 @@ jobs:
         with:
           path: C:\gecko-state
           key: gecko-windows-toolchains-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/windows.mozconfig') }}
+      - name: Cache pinned source archive
+        uses: actions/cache@v4
+        with:
+          path: C:\gecko\source.tar.xz
+          key: gecko-source-archive-${{ hashFiles('scripts/preview/runtime.json') }}
+      - name: Cache compiled Gecko
+        id: engine-cache
+        if: inputs.phase != 'configure'
+        uses: actions/cache@v4
+        with:
+          path: C:\gecko\runtime\firefox
+          key: gecko-windows-2025-x64-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/**') }}
+      - name: Fetch and verify Gecko archive
+        run: ./scripts/gecko/build-windows.ps1 -Phase archive
       - name: Install pinned MozillaBuild
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: ./scripts/gecko/build-windows.ps1 -Phase tools
-      - name: Fetch and verify Gecko sources
+      - name: Extract verified Gecko sources
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: ./scripts/gecko/build-windows.ps1 -Phase source
       - name: Configure pinned Gecko
         if: inputs.phase == 'configure'
         run: ./scripts/gecko/build-windows.ps1 -Phase configure
       - name: Compile pinned Gecko
-        if: inputs.phase != 'configure'
+        if: inputs.phase != 'configure' && steps.engine-cache.outputs.cache-hit != 'true'
         run: ./scripts/gecko/build-windows.ps1 -Phase build
       - name: Package candidate with Night
         if: inputs.phase != 'configure'

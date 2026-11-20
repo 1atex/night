@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)] [ValidateSet('tools', 'source', 'configure', 'build')] [string] $Phase)
+param([Parameter(Mandatory)] [ValidateSet('tools', 'archive', 'source', 'configure', 'build')] [string] $Phase)
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
@@ -26,8 +26,14 @@ if ($Phase -eq 'tools') {
     return
 }
 
+if ($Phase -eq 'archive') {
+    if (!(Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.source_archive.sha256) {
+        Get-PinnedFile $pin.source_archive.url $archive $pin.source_archive.sha256
+    }
+    return
+}
+
 if ($Phase -eq 'source') {
-    Get-PinnedFile $pin.source_archive.url $archive $pin.source_archive.sha256
     tar.exe -xf $archive --strip-components 1 -C "$root/src"
     if (!(Test-Path "$root/src/mach")) { throw "Source archive did not contain mach" }
     return
