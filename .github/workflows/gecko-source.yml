@@ -6,7 +6,7 @@ on:
       phase:
         description: Jobs to run
         type: choice
-        options: [all, baseline, source, configure, renderer, browsing, idle]
+        options: [all, baseline, source, configure, renderer, browsing, idle, home]
         default: all
       engine:
         description: Windows source build variant
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   windows-baseline:
-    if: inputs.phase == 'baseline' || inputs.phase == 'all' || inputs.phase == 'browsing' || inputs.phase == 'idle'
+    if: inputs.phase == 'baseline' || inputs.phase == 'all' || inputs.phase == 'browsing' || inputs.phase == 'idle' || inputs.phase == 'home'
     runs-on: windows-2025
     timeout-minutes: 15
     env:
@@ -43,17 +43,18 @@ jobs:
           $stockHash = (Get-FileHash "$env:RUNNER_TEMP/firefox/core/xul.dll").Hash
           if ((Get-FileHash dist/Night/runtime/xul.dll).Hash -ne $stockHash) { throw "The baseline must use the same engine" }
       - name: Measure browsing memory and navigation latency
-        if: inputs.phase == 'browsing' || inputs.phase == 'idle'
+        if: inputs.phase == 'browsing' || inputs.phase == 'idle' || inputs.phase == 'home'
         run: |
           python -m pip install -r tests/native/requirements.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $runtime = (Resolve-Path dist/Night/runtime).Path
           $mode = @()
           if ("${{ inputs.phase }}" -eq "idle") { $mode += "--idle" }
+          if ("${{ inputs.phase }}" -eq "home") { $mode += "--home" }
           python tests/native/browsing_memory.py --binary "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts @mode
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Measure active, minimized and video workloads
-        if: inputs.phase != 'browsing' && inputs.phase != 'idle'
+        if: inputs.phase != 'browsing' && inputs.phase != 'idle' && inputs.phase != 'home'
         run: |
           python -m pip install -r tests/native/requirements.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -92,7 +93,7 @@ jobs:
         run: bash tests/gecko/compare-depth.sh "$RUNNER_TEMP/gecko"
 
   windows-source:
-    if: inputs.phase != 'baseline' && inputs.phase != 'renderer' && inputs.phase != 'browsing' && inputs.phase != 'idle'
+    if: inputs.phase != 'baseline' && inputs.phase != 'renderer' && inputs.phase != 'browsing' && inputs.phase != 'idle' && inputs.phase != 'home'
     runs-on: windows-2025
     timeout-minutes: 300
     env:

@@ -65,6 +65,42 @@ def start(client):
     assert client.execute_script("return Services.appinfo.fissionAutostart;")
 
 
+def measure_home(args, server, legacy_feeds, index):
+    unused = """discoverystreamfeed sectionslayoutfeed wallpaperfeed weatherfeed webnotificationsfeed
+        stocksfeed adsfeed inferredpersonalizationfeed smartshortcutsfeed newtabattributionfeed
+        newtabmessaging listsfeed privacyfeed recentsearchesfeed pictureofthedayfeed timerfeed
+        travelfeed externalcomponentsfeed extensionwidgetsfeed""".split()
+    prefs = {f"browser.newtabpage.activity-stream.feeds.{name}": True for name in unused} if legacy_feeds else {}
+    client = browser(args, f"home-{index}", prefs)
+    try:
+        start(client)
+        client.set_context("content")
+        client.navigate("about:home")
+        wait_for(lambda: client.execute_script("return !!document.getElementById('query');"))
+        client.set_context("chrome")
+        def feeds():
+            return client.execute_script("""
+              const service = ChromeUtils.importESModule("resource:///modules/AboutNewTab.sys.mjs").AboutNewTab;
+              return [...(service.activityStream?.store.feeds.keys() || [])];
+            """)
+        wait_for(lambda: "feeds.system.topsites" in feeds(), timeout=45)
+        time.sleep(3)
+        names = feeds()
+        expected = {"feeds." + name for name in unused}
+        assert (expected.issubset(names) if legacy_feeds else expected.isdisjoint(names)), names
+        home = diagnostic_samples(client)
+        client.set_context("content")
+        for i, site in enumerate(SITES[:2]):
+            if i:
+                client.switch_to_window(client.open(type="tab")["handle"])
+            client.navigate(f"http://{site}:{server.server_port}/home-test")
+            assert client.title == site
+        client.set_context("chrome")
+        return {"legacy_feeds": legacy_feeds, "feeds": names, "home": home, "two_sites": diagnostic_samples(client)}
+    finally:
+        client.cleanup()
+
+
 def measure_idle(args, server, delay, index):
     client = browser(args, f"idle-{index}", {"javascript.options.compact_on_user_inactive_delay": delay})
     try:
@@ -172,11 +208,20 @@ if __name__ == "__main__":
     parser.add_argument("--app-ini", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["current", "reuse", "single", "single", "reuse", "current"])
-    parser.add_argument("--idle", action="store_true")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--idle", action="store_true")
+    group.add_argument("--home", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with ThreadingHTTPServer(("127.0.0.1", 0), Fixture) as server:
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        if args.home:
+            for index, legacy in enumerate([True, False, False, True]):
+                result = measure_home(args, server, legacy, index)
+                (args.output / f"home-{index}.json").write_text(json.dumps(result, indent=2))
+                print("old feeds", legacy, "count", len(result["feeds"]), "home", result["home"]["total"],
+                      "two sites", result["two_sites"]["total"], flush=True)
+            raise SystemExit(0)
         if args.idle:
             for index, delay in enumerate([300000, 30000, 30000, 300000]):
                 result = measure_idle(args, server, delay, index)
