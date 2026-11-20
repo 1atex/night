@@ -9,6 +9,9 @@ mkdir -p "$(dirname "$example")"
 cp "$repo/tests/gecko/swgl_depth.rs" "$example"
 cd "$workspace"
 export CARGO_PROFILE_DEV_DEBUG=0
+if [[ ${RUNNER_OS:-} == Windows || ${OS:-} == Windows_NT ]]; then
+    export CC=clang-cl CXX=clang-cl
+fi
 probe=(cargo run --locked -q -p webrender --features sw_compositor --example night_depth --)
 
 upstream_control=$("${probe[@]}")
