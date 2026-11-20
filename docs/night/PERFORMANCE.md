@@ -135,15 +135,17 @@ a 1024×512 page tile and a 32×1024 scrollbar tile it can reserve 1024×1024.
 Night requests the dimensions of the surface being drawn. SWGL retains the
 largest byte capacity and uses the current valid rectangle for the stride.
 
-A Linux native probe compiled the pinned Rust compositor before and after the
-patch against the same SWGL library. Each pass bound and cleared the tiles,
-checked the output pixels, and checked that destruction released the texture.
-SWGL reported the following peak allocated bytes (including allocator rounding).
+The [native regression run on Windows and Linux](https://github.com/1atex/night/actions/runs/44666885698)
+compiled both versions from the same verified Gecko archive. Each pass bound
+and cleared the tiles, checked the output pixels, and checked that destruction
+released the texture. Peak allocated bytes include allocator rounding.
 
-| Workload | Upstream | Night |
-| --- | ---: | ---: |
-| Page tile only | 2,101,232 | 2,101,232 |
-| Page, vertical and horizontal scrollbar tiles | 4,198,384 | 2,101,232 |
+| Platform | Tiles | Upstream | Night |
+| --- | --- | ---: | ---: |
+| Windows x64 | Page | 2,097,168 | 2,097,168 |
+| Windows x64 | Page and both scrollbars | 4,194,320 | 2,097,168 |
+| Linux x64 | Page | 2,101,232 | 2,101,232 |
+| Linux x64 | Page and both scrollbars | 4,198,384 | 2,101,232 |
 
 These figures measure one compositor texture. Whole-browser working set, GPU
 driver memory and playback speed require separate measurements. The renderer
