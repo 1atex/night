@@ -22,9 +22,11 @@ def replace_once(entries, name, before, after):
     entries[name] = content.replace(before, after).encode("utf-8")
 
 
-def package(runtime, output, archive, platform):
-    digest = hashlib.file_digest(archive.open("rb"), "sha256").hexdigest()
-    if digest != PIN[platform]["sha256"]:
+def package(runtime, output, archive, platform, source_build=False):
+    archive_pin = PIN["source_archive" if source_build else platform]
+    with archive.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if digest != archive_pin["sha256"]:
         raise ValueError("Upstream archive checksum mismatch")
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
@@ -121,6 +123,8 @@ def package(runtime, output, archive, platform):
     }
     for locale, messages in trust_copy.items():
         name = f"localization/{locale}/browser/browser.ftl"
+        if source_build and locale == "ru" and name not in browser:
+            continue
         for key, value in messages.items():
             text, count = re.subn(rf"(?m)^{re.escape(key)} = .*$", f"{key} = {value}", browser[name].decode())
             if count != 1:
@@ -128,6 +132,8 @@ def package(runtime, output, archive, platform):
             browser[name] = text.encode()
     for locale, label, manage in [("ru", "Сайты и вкладки", "Настроить подсказки"), ("en-US", "Sites and tabs", "Suggestion settings")]:
         name = f"localization/{locale}/browser/browser.ftl"
+        if source_build and locale == "ru" and name not in browser:
+            continue
         text, count = re.subn(r"(?m)^(urlbar-group-firefox-suggest =\n[ \t]+\.label = ).*$", lambda m: m[1] + label, browser[name].decode())
         if count != 1:
             raise ValueError("Unexpected address suggestion label")
@@ -147,6 +153,8 @@ def package(runtime, output, archive, platform):
     }
     for locale, messages in extensions_copy.items():
         name = f"localization/{locale}/browser/unifiedExtensions.ftl"
+        if source_build and locale == "ru" and name not in browser:
+            continue
         for key, value in messages.items():
             text, count = re.subn(rf"(?m)^{re.escape(key)} = .*$", f"{key} = {value}", browser[name].decode())
             if count != 1:
@@ -162,6 +170,8 @@ def package(runtime, output, archive, platform):
         ("en-US", 'Extensions add capabilities to your browser. Read about <a data-l10n-name="learn-more-trigger">Mozilla’s review and recommendation process</a> before installing.'),
     ]:
         name = f"localization/{locale}/toolkit/about/aboutAddons.ftl"
+        if source_build and locale == "ru" and name not in toolkit:
+            continue
         text, count = re.subn(r"(?m)^discopane-intro3 =[^\n]*(?:\n[ \t]+[^\n]*)*", "discopane-intro3 = " + intro, toolkit[name].decode())
         if count != 1:
             raise ValueError("Unexpected extensions introduction")
@@ -219,6 +229,8 @@ def package(runtime, output, archive, platform):
             toolkit[name] += b"\n" + (source / "theme.css").read_bytes() + b"\n" + (source / "internal.css").read_bytes()
     for locale in ["ru", "en-US"]:
         name = f"localization/{locale}/toolkit/branding/brandings.ftl"
+        if source_build and locale == "ru" and name not in toolkit:
+            continue
         text = toolkit[name].decode()
         for key, ru, en in [
             ("firefox-suggest", "Подсказки", "Suggestions"),
@@ -244,6 +256,8 @@ def package(runtime, output, archive, platform):
     browser[name] = text.encode()
     for locale in ["ru", "en-US"]:
         name = f"localization/{locale}/browser/preferences/preferences.ftl"
+        if source_build and locale == "ru" and name not in browser:
+            continue
         text = browser[name].decode()
         for key, message in [
             ("is-default-browser-2", "{ -brand-short-name } — браузер по умолчанию." if locale == "ru" else "{ -brand-short-name } is your default browser."),
@@ -276,8 +290,12 @@ def package(runtime, output, archive, platform):
     config["App"].update({"Name": "Night", "Vendor": "Night", "RemotingName": "night-browser",
                           "Profile": "NightPreview",
                           "SourceRepository": "https://github.com/1atex/night", "SourceStamp": revision})
+    if not config.has_section("AppUpdate"):
+        config.add_section("AppUpdate")
     config["AppUpdate"]["URL"] = "https://updates.invalid/"
     config["XRE"]["EnableProfileMigrator"] = "0"
+    if not config.has_section("Crash Reporter"):
+        config.add_section("Crash Reporter")
     config["Crash Reporter"]["Enabled"] = "0"
     with (target / "browser/application.ini").open("w", encoding="utf-8") as stream:
         config.write(stream, space_around_delimiters=False)
@@ -294,7 +312,7 @@ def package(runtime, output, archive, platform):
             encoding="utf-8")
     (output / "BUILD.json").write_text(json.dumps({
         "night_revision": revision, "night_version": json.loads((ROOT / "package.json").read_text())["version"], "night_build_id": build_id,
-        "upstream": PIN, "platform": platform,
+        "upstream": PIN, "platform": platform, "runtime_origin": "compiled-source" if source_build else "mozilla-release-binary",
         "island_companion": json.loads((ROOT / "scripts/preview/island.json").read_text()),
         "type": "Night shell and services on a pinned Mozilla Firefox native runtime",
         "source": f"https://github.com/1atex/night/tree/{revision}",
@@ -325,5 +343,6 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--platform", choices=["windows_x64", "linux_x64"], required=True)
+    parser.add_argument("--source-build", action="store_true")
     args = parser.parse_args()
-    package(args.runtime, args.output, args.archive, args.platform)
+    package(args.runtime, args.output, args.archive, args.platform, args.source_build)

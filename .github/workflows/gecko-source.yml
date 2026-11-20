@@ -1,0 +1,113 @@
+name: Gecko source candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/gecko-source.yml"
+      - "scripts/gecko/**"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-baseline:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prepare matched Firefox and Night
+        run: |
+          $pin = Get-Content scripts/preview/runtime.json -Raw | ConvertFrom-Json
+          $installer = Join-Path $env:RUNNER_TEMP firefox.exe
+          curl.exe --fail --location --retry 3 --silent --show-error $pin.windows_x64.url --output $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.windows_x64.sha256) { throw "Firefox checksum mismatch" }
+          7z x -y "-o$env:RUNNER_TEMP/firefox" $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/preview/package.py --runtime "$env:RUNNER_TEMP/firefox/core" --archive $installer --platform windows_x64 --output dist/Night
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $stockHash = (Get-FileHash "$env:RUNNER_TEMP/firefox/core/xul.dll").Hash
+          if ((Get-FileHash dist/Night/runtime/xul.dll).Hash -ne $stockHash) { throw "The baseline must use the same engine" }
+      - name: Measure active, minimized and video workloads
+        run: |
+          python -m pip install -r tests/native/requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runtime = (Resolve-Path dist/Night/runtime).Path
+          python tests/native/memory.py --stock "$env:RUNNER_TEMP/firefox/core/firefox.exe" --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --diagnostic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gecko-windows-baseline
+          path: test-artifacts/
+
+  windows-source:
+    runs-on: windows-2025
+    timeout-minutes: 300
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      MOZILLABUILD: C:\mozilla-build
+      MOZBUILD_STATE_PATH: C:\gecko-state
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check runner resources
+        run: |
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Root, Used, Free
+          Get-CimInstance Win32_ComputerSystem | Format-Table NumberOfLogicalProcessors, TotalPhysicalMemory
+          rustc --version
+          if ($LASTEXITCODE -ne 0) { throw "Rust is missing" }
+      - name: Cache Mozilla build toolchains
+        uses: actions/cache@v4
+        with:
+          path: C:\gecko-state
+          key: gecko-windows-toolchains-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/windows.mozconfig') }}
+      - name: Compile pinned Gecko
+        run: ./scripts/gecko/build-windows.ps1
+      - name: Package candidate with Night
+        run: |
+          python scripts/preview/package.py --source-build --platform windows_x64 --archive C:/gecko/source.tar.xz --runtime C:/gecko/runtime/firefox --output dist/Night
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $compiler = "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
+          & $compiler /nologo /target:winexe /platform:x64 /codepage:65001 /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /win32icon:src/night/branding/night.ico /out:dist/Night/Night.exe scripts/preview/Launcher.cs scripts/preview/ProfileImport.cs scripts/preview/UpdateRunner.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check startup and browser behaviour
+        run: |
+          python -m pip install -r tests/native/requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force test-artifacts | Out-Null
+          $runtime = (Resolve-Path dist/Night/runtime).Path
+          python tests/native/smoke.py --binary "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --preview --log test-artifacts/source-smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/native/memory.py --stock C:/gecko/runtime/firefox/firefox.exe --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --diagnostic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Archive source candidate
+        run: |
+          7z a -tzip -mx=3 dist/night-gecko-source-windows-x64.zip ./dist/Night
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: night-gecko-source-windows-x64
+          path: dist/night-gecko-source-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gecko-source-measurements
+          path: |
+            test-artifacts/
+            C:/gecko/*.log

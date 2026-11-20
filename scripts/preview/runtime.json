@@ -3,6 +3,10 @@
   "version": "160.0",
   "revision": "d84e7a6936554efe26097d9d9b24a0e11330e630",
   "source": "https://hg.mozilla.org/releases/mozilla-release/rev/d84e7a6936554efe26097d9d9b24a0e11330e630",
+  "source_archive": {
+    "url": "https://archive.mozilla.org/pub/firefox/releases/160.0/source/firefox-160.0.source.tar.xz",
+    "sha256": "2b23d2bf6716ea16b45c10aa5c275c78a1d7ff50ad53150809ab27424c58fd81"
+  },
   "gecko": "160.0",
   "windows_x64": {
     "url": "https://archive.mozilla.org/pub/firefox/releases/160.0/win64/ru/Firefox%20Setup%20160.0.exe",
