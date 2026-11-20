@@ -33,6 +33,15 @@ def package(runtime, output, archive, platform, source_build=False):
     config.read(runtime / "application.ini")
     if config["App"]["SourceStamp"] != PIN["revision"] or config["Gecko"]["MaxVersion"] != PIN["gecko"]:
         raise ValueError("Upstream runtime does not match the source revision")
+    engine_manifest = {}
+    if source_build:
+        engine = json.loads((runtime / "night-engine.json").read_text(encoding="utf-8-sig"))
+        with (runtime / "xul.dll").open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != engine["xul_sha256"]:
+                raise ValueError("Compiled Gecko binary does not match its build manifest")
+        if engine["upstream_revision"] != PIN["revision"]:
+            raise ValueError("Compiled Gecko revision does not match its build manifest")
+        engine_manifest["engine"] = engine
     if output.exists():
         raise ValueError(f"Output must be a new directory: {output}")
     output.mkdir(parents=True)
@@ -311,6 +320,7 @@ def package(runtime, output, archive, platform, source_build=False):
             '<configuration><runtime><AppContextSwitchOverrides value="Switch.System.IO.UseLegacyPathHandling=false;Switch.System.IO.BlockLongPaths=false" /></runtime></configuration>\n',
             encoding="utf-8")
     (output / "BUILD.json").write_text(json.dumps({
+        **engine_manifest,
         "night_revision": revision, "night_version": json.loads((ROOT / "package.json").read_text())["version"], "night_build_id": build_id,
         "upstream": PIN, "platform": platform, "runtime_origin": "compiled-source" if source_build else "mozilla-release-binary",
         "island_companion": json.loads((ROOT / "scripts/preview/island.json").read_text()),

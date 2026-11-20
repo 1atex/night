@@ -1,0 +1,62 @@
+--- a/gfx/wr/webrender/src/compositor/sw_compositor.rs
++++ b/gfx/wr/webrender/src/compositor/sw_compositor.rs
+@@ -1168,12 +1168,7 @@
+     /// track those separately.
+     composite_surfaces: HashMap<ExternalImageId, SWGLCompositeSurfaceInfo>,
+     cur_tile: NativeTileId,
+-    /// The maximum tile size required for any of the allocated surfaces.
+-    max_tile_size: DeviceIntSize,
+     /// Reuse the same depth texture amongst all tiles in all surfaces.
+-    /// This depth texture must be big enough to accommodate the largest used
+-    /// tile size for any surface. The maximum requested tile size is tracked
+-    /// to ensure that this depth texture is at least that big.
+     /// This is initialized when the first surface is created and freed when
+     /// the last surface is destroyed, to ensure compositors with no surfaces
+     /// are not holding on to extra memory.
+@@ -1222,7 +1217,6 @@
+                 x: 0,
+                 y: 0,
+             },
+-            max_tile_size: DeviceIntSize::zero(),
+             depth_id: None,
+             composite_thread,
+             locked_framebuffer: None,
+@@ -1631,10 +1625,6 @@
+         if self.use_native_compositor {
+             self.compositor.create_surface(id, tile_size, is_opaque);
+         }
+-        self.max_tile_size = DeviceIntSize::new(
+-            self.max_tile_size.width.max(tile_size.width),
+-            self.max_tile_size.height.max(tile_size.height),
+-        );
+         if self.depth_id.is_none() {
+             self.depth_id = Some(self.gl.gen_textures(1)[0]);
+         }
+@@ -1801,15 +1791,7 @@
+                     surface.tile_size.width,
+                     surface.tile_size.height,
+                 );
+-                // Reallocate the shared depth buffer to fit the valid rect, but within
+-                // a buffer sized to actually fit at least the maximum possible tile size.
+-                // The maximum tile size is supplied to avoid reallocation by ensuring the
+-                // allocated buffer is actually big enough to accommodate the largest tile
+-                // size requested by any used surface, even though supplied valid rect may
+-                // actually be much smaller than this. This will only force a texture
+-                // reallocation inside SWGL if the maximum tile size has grown since the
+-                // last time it was supplied, instead simply reusing the buffer if the max
+-                // tile size is not bigger than what was previously allocated.
++                // SWGL retains capacity across binds. Reserve one real tile at a time.
+                 self.gl.set_texture_buffer(
+                     self.depth_id.expect("depth texture should be initialized"),
+                     gl::DEPTH_COMPONENT,
+@@ -1817,8 +1799,8 @@
+                     valid_rect.height(),
+                     0,
+                     ptr::null_mut(),
+-                    self.max_tile_size.width,
+-                    self.max_tile_size.height,
++                    surface.tile_size.width,
++                    surface.tile_size.height,
+                 );
+                 surface_info.handle = NativeSurfaceHandle(tile.fbo_id as u64);
+                 surface_info.origin -= valid_rect.min.to_vector();

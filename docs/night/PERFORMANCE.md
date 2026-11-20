@@ -125,3 +125,28 @@ startup and compares Night to the Firefox it just built. The portable candidate
 is an Actions artifact. The candidate and Mozilla's release have different compiler
 configurations. Comparisons of engine changes need two source builds with the
 same configuration.
+
+### WebRender shared depth texture
+
+The Night source candidate applies `scripts/gecko/patches/swgl-depth-tile.patch`.
+In the software compositor, several surfaces can share a single depth texture.
+Upstream reserves the widest and tallest tile dimensions independently. With
+a 1024×512 page tile and a 32×1024 scrollbar tile it can reserve 1024×1024.
+Night requests the dimensions of the surface being drawn. SWGL retains the
+largest byte capacity and uses the current valid rectangle for the stride.
+
+A Linux native probe compiled the pinned Rust compositor before and after the
+patch against the same SWGL library. Each pass bound and cleared the tiles,
+checked the output pixels, and checked that destruction released the texture.
+SWGL reported the following peak allocated bytes (including allocator rounding).
+
+| Workload | Upstream | Night |
+| --- | ---: | ---: |
+| Page tile only | 2,101,232 | 2,101,232 |
+| Page, vertical and horizontal scrollbar tiles | 4,198,384 | 2,101,232 |
+
+These figures measure one compositor texture. Whole-browser working set, GPU
+driver memory and playback speed require separate measurements. The renderer
+job in `gecko-source.yml` runs the regression on the pinned standalone WebRender
+workspace. The Windows source job accepts `engine=night` and `engine=upstream`
+to package both versions using the same compiler configuration.

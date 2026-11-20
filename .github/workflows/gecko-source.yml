@@ -6,8 +6,13 @@ on:
       phase:
         description: Jobs to run
         type: choice
-        options: [all, baseline, source, configure]
+        options: [all, baseline, source, configure, renderer]
         default: all
+      engine:
+        description: Windows source build variant
+        type: choice
+        options: [night, upstream]
+        default: night
 
 permissions:
   contents: read
@@ -50,13 +55,31 @@ jobs:
           name: gecko-windows-baseline
           path: test-artifacts/
 
+  renderer:
+    if: inputs.phase == 'source' || inputs.phase == 'all' || inputs.phase == 'renderer'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract pinned WebRender workspace
+        run: |
+          pin=scripts/preview/runtime.json
+          archive="$RUNNER_TEMP/gecko.tar.xz"
+          curl -fsSL --retry 3 "$(jq -r .source_archive.url "$pin")" -o "$archive"
+          echo "$(jq -r .source_archive.sha256 "$pin")  $archive" | sha256sum -c
+          mkdir -p "$RUNNER_TEMP/gecko"
+          tar -xJf "$archive" --strip-components=1 --wildcards -C "$RUNNER_TEMP/gecko" '*/gfx/wr/*'
+      - name: Compare upstream and patched depth allocations
+        run: bash tests/gecko/compare-depth.sh "$RUNNER_TEMP/gecko"
+
   windows-source:
-    if: inputs.phase != 'baseline'
+    if: inputs.phase != 'baseline' && inputs.phase != 'renderer'
     runs-on: windows-2025
     timeout-minutes: 300
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
+      NIGHT_ENGINE_VARIANT: ${{ inputs.engine }}
       MOZILLABUILD: C:\mozilla-build
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +114,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.NIGHT_GECKO_ROOT }}/runtime/firefox
-          key: gecko-windows-2025-x64-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/**') }}
+          key: gecko-windows-2025-x64-${{ inputs.engine }}-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/**') }}
       - name: Fetch and verify Gecko archive
         run: ./scripts/gecko/build-windows.ps1 -Phase archive
       - name: Install pinned MozillaBuild

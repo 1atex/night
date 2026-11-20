@@ -5,6 +5,9 @@ $PSNativeCommandUseErrorActionPreference = $true
 
 $repository = (Resolve-Path "$PSScriptRoot/../..").Path
 $root = $env:NIGHT_GECKO_ROOT
+$variant = $env:NIGHT_ENGINE_VARIANT
+if (!$variant) { $variant = 'night' }
+if ($variant -notin @('night', 'upstream')) { throw "Unknown Gecko variant: $variant" }
 $pin = Get-Content "$repository/scripts/preview/runtime.json" -Raw | ConvertFrom-Json
 $archive = "$root/source.tar.xz"
 $setup = "$root/MozillaBuild.exe"
@@ -36,6 +39,10 @@ if ($Phase -eq 'archive') {
 if ($Phase -eq 'source') {
     tar.exe -xf $archive --strip-components 1 -C "$root/src"
     if (!(Test-Path "$root/src/mach")) { throw "Source archive did not contain mach" }
+    if ($variant -eq 'night') {
+        git -C "$root/src" apply --whitespace=error "$PSScriptRoot/patches/swgl-depth-tile.patch"
+        if ($LASTEXITCODE -ne 0) { throw "WebRender patch failed" }
+    }
     return
 }
 
@@ -60,4 +67,14 @@ $packages = @(Get-ChildItem "$root/obj/dist" -Filter '*.win64.zip')
 if ($packages.Count -ne 1) { throw "Expected one Firefox Windows archive" }
 7z x -y "-o$root/runtime" $packages[0].FullName
 if (!(Test-Path "$root/runtime/firefox/xul.dll")) { throw "Compiled xul.dll is missing" }
-Get-FileHash "$root/runtime/firefox/xul.dll" -Algorithm SHA256
+$engine = [ordered]@{
+    variant = $variant
+    upstream_revision = $pin.revision
+    xul_sha256 = (Get-FileHash "$root/runtime/firefox/xul.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
+    patches = @()
+}
+if ($engine.variant -eq 'night') {
+    $patch = Get-Item "$PSScriptRoot/patches/swgl-depth-tile.patch"
+    $engine.patches = @(@{ file = $patch.Name; sha256 = (Get-FileHash $patch -Algorithm SHA256).Hash.ToLowerInvariant() })
+}
+$engine | ConvertTo-Json -Depth 4 | Set-Content "$root/runtime/firefox/night-engine.json" -Encoding utf8
