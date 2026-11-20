@@ -109,7 +109,11 @@ size and anonymized Gecko graphics memory reports during playback. Open the
 profile JSON in Firefox Profiler to inspect individual threads. These captures
 use local fixtures and fresh profiles. The [second Windows run](https://github.com/1atex/night/actions/runs/44659889366)
 recorded software WebRender in both browsers and reproduced the GPU process
-difference.
+difference. The [graphics report](https://github.com/1atex/night/actions/runs/44660394942)
+showed 82.97 vs 91.97 MiB in the SWGL heap and 32 vs 36 MiB in render targets
+for Firefox and Night respectively. The reports describe different layers of
+the allocation and should be read individually. Both runners reported zero
+dedicated GPU memory for this workload.
 
 ## Gecko built from source
 
