@@ -29,6 +29,7 @@ export class NightTogetherView {
     this.#window.clearInterval(this.#timer);
     this.#timer = null;
     this.#rows.clear();
+    this.#signature = '';
     this.#body = this.#input = this.#status = this.#video = null;
     this.#panel.replaceChildren();
     this.#button.setAttribute('aria-expanded', 'false');

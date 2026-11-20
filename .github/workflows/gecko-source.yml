@@ -84,6 +84,8 @@ jobs:
         run: |
           python scripts/preview/package.py --source-build --platform windows_x64 --archive C:/gecko/source.tar.xz --runtime C:/gecko/runtime/firefox --output dist/Night
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $builtHash = (Get-FileHash C:/gecko/runtime/firefox/xul.dll -Algorithm SHA256).Hash
+          if ((Get-FileHash dist/Night/runtime/xul.dll -Algorithm SHA256).Hash -ne $builtHash) { throw "Night does not contain the compiled Gecko binary" }
           $compiler = "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
           & $compiler /nologo /target:winexe /platform:x64 /codepage:65001 /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /win32icon:src/night/branding/night.ico /out:dist/Night/Night.exe scripts/preview/Launcher.cs scripts/preview/ProfileImport.cs scripts/preview/UpdateRunner.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -104,9 +104,12 @@ python tests/native/memory.py --stock C:/Firefox/firefox.exe --night C:/Night/ru
 ```
 
 Add `--profile-rendering` to record Gecko Profiler captures of playback and the
-HTML/JS/CSS workload after the memory samples. Open the resulting profile JSON
-in Firefox Profiler to inspect the individual threads. These captures use local
-fixtures and fresh profiles.
+HTML/JS/CSS workload after the memory samples. The diagnostic records viewport
+size and anonymized Gecko graphics memory reports during playback. Open the
+profile JSON in Firefox Profiler to inspect individual threads. These captures
+use local fixtures and fresh profiles. The [second Windows run](https://github.com/1atex/night/actions/runs/44659889366)
+recorded software WebRender in both browsers and reproduced the GPU process
+difference.
 
 ## Gecko built from source
 

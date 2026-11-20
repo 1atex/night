@@ -132,8 +132,20 @@ def profile_rendering(browser, url, destination):
         browser.navigate(url + "/video")
         wait_for(lambda: browser.execute_script("return document.querySelector('video').currentTime > 0;"))
         time.sleep(4)
+        browser.set_context("chrome")
+        graphics_memory = browser.execute_async_script(r"""
+          const done = arguments[arguments.length - 1], reports = [];
+          const manager = Cc['@mozilla.org/memory-reporter-manager;1'].getService(Ci.nsIMemoryReporterManager);
+          manager.getReports((process, path, kind, units, bytes) => {
+            if (units === 0 && /^(gpu-|gfx\/|explicit\/gfx\/|d3d11-)/.test(path)) {
+              reports.push({process: process || 'Parent', path, kind, bytes});
+            }
+          }, null, () => done(reports), null, true);
+        """)
+        browser.set_context("content")
         browser.navigate(url + "/rendering")
         wait_for(lambda: browser.execute_script("return typeof window.wrappedJSObject.measure === 'function';"))
+        viewport = browser.execute_script("return {width: innerWidth, height: innerHeight, scale: devicePixelRatio};")
         rounds = [browser.execute_script("return window.wrappedJSObject.measure();") for _ in range(7)]
         browser.set_context("chrome")
         written = browser.execute_async_script("""
@@ -142,7 +154,8 @@ def profile_rendering(browser, url, destination):
         """, script_args=[str(destination.resolve())])
         if written is not True:
             raise RuntimeError(f"Could not save Gecko profile: {written}")
-        return {"file": destination.name, "rounds": rounds,
+        return {"file": destination.name, "rounds": rounds, "viewport": viewport,
+                "playback_graphics_memory": graphics_memory,
                 "js_ms_median": statistics.median(row["js"] for row in rounds[1:]),
                 "style_layout_ms_median": statistics.median(row["styleLayout"] for row in rounds[1:])}
     finally:
@@ -255,7 +268,7 @@ def run(stock, night, app_ini, output, diagnostic, profile):
     try:
         result = {"platform": platform.platform(), "headless": os.environ.get("MOZ_HEADLESS") == "1", "method": "Browser minimized before measurement; headless mode is recorded separately. Fresh profiles, 7 same-origin local tabs, each allocates and touches 32 MiB. Median of 5 samples at 1 second intervals; all descendants included. Night idle clock advanced 15 minutes; active tab and one explicit exception protected. No forced GC or working-set trimming. Windows USS is private working set; private bytes is commit. This is not a real-site workload or rendering benchmark."}
         if diagnostic:
-            result["method"] = "Fresh profiles, no add-ons, localhost VP9 video and seven 32 MiB HTML fixtures. Five samples per phase. All seven tabs remain loaded. Roles from Gecko, bytes and CPU from psutil. CPU delta counts only processes present at both ends of the sample window. Private commit is Windows-only."
+            result["method"] = "Fresh profiles, no add-ons, localhost VP8 video and seven 32 MiB HTML fixtures. Five samples per phase. All seven tabs remain loaded. Roles from Gecko, bytes and CPU from psutil. CPU delta counts only processes present at both ends of the sample window. Private commit is Windows-only."
         result["firefox"] = measure(stock, None, url, output, "firefox", diagnostic, profile)
         result["night"] = measure(night, app_ini, url, output, "night", diagnostic, profile)
         if diagnostic:
