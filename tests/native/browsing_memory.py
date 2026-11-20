@@ -3,6 +3,7 @@ import json
 import statistics
 import threading
 import time
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -56,9 +57,22 @@ class Fixture(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+@contextmanager
+def local_sites():
+    with ThreadingHTTPServer(("127.0.0.1", 0), Fixture) as server:
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            yield server
+        finally:
+            server.shutdown()
+            thread.join()
+
+
 def browser(args, name, extra_prefs):
     prefs = {
         "night.onboarding.completed": True, "night.memory.enabled": False,
+        "browser.newtabpage.activity-stream.testing.shouldInitializeFeeds": True,
         "network.dns.localDomains": ",".join(SITES), "network.proxy.type": 0,
         "dom.security.https_only_mode": False, "dom.security.https_first": False,
         **extra_prefs,
@@ -175,7 +189,13 @@ def measure(args, server, name, index):
           const { AboutNewTab } = ChromeUtils.importESModule("resource:///modules/AboutNewTab.sys.mjs");
           return AboutNewTab.activityStream?.store.feeds.has("feeds.system.topsites");
         """), timeout=45)
-        result = {"profile": name, "home": snapshot()}
+        active_feeds = client.execute_script("""
+          const { AboutNewTab } = ChromeUtils.importESModule("resource:///modules/AboutNewTab.sys.mjs");
+          return [...AboutNewTab.activityStream.store.feeds.keys()];
+        """)
+        widgets = {"feeds." + name for name in LEGACY_WIDGETS}
+        assert (widgets.issubset(active_feeds) if name == "previous" else widgets.isdisjoint(active_feeds)), active_feeds
+        result = {"profile": name, "feeds": active_feeds, "home": snapshot()}
         handles, opens = [], []
         for i, site in enumerate(TAB_SITES):
             start = time.monotonic()
@@ -227,8 +247,7 @@ if __name__ == "__main__":
     group.add_argument("--home", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    with ThreadingHTTPServer(("127.0.0.1", 0), Fixture) as server:
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+    with local_sites() as server:
         if args.home:
             for index, legacy in enumerate([True, False, False, True]):
                 result = measure_home(args, server, legacy, index)
