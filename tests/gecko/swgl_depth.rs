@@ -80,13 +80,15 @@ impl MappableCompositor for Surface {
     }
 }
 extern "C" {
-    fn malloc_usable_size(p: *mut c_void) -> usize;
+    #[cfg_attr(target_os = "linux", link_name = "malloc_usable_size")]
+    #[cfg_attr(target_env = "msvc", link_name = "_msize")]
+    fn allocation_size(p: *mut c_void) -> usize;
 }
 unsafe extern "C" fn allocated(p: *const c_void) -> usize {
     if p.is_null() {
         0
     } else {
-        malloc_usable_size(p.cast_mut())
+        allocation_size(p.cast_mut())
     }
 }
 fn main() {

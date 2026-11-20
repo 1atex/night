@@ -36,7 +36,8 @@ def package(runtime, output, archive, platform, source_build=False):
     engine_manifest = {}
     if source_build:
         engine = json.loads((runtime / "night-engine.json").read_text(encoding="utf-8-sig"))
-        with (runtime / "xul.dll").open("rb") as stream:
+        library = "xul.dll" if platform == "windows_x64" else "libxul.so"
+        with (runtime / library).open("rb") as stream:
             if hashlib.file_digest(stream, "sha256").hexdigest() != engine["xul_sha256"]:
                 raise ValueError("Compiled Gecko binary does not match its build manifest")
         if engine["upstream_revision"] != PIN["revision"]:

@@ -57,18 +57,26 @@ jobs:
 
   renderer:
     if: inputs.phase == 'source' || inputs.phase == 'all' || inputs.phase == 'renderer'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Extract pinned WebRender workspace
         run: |
           pin=scripts/preview/runtime.json
+          if [[ "$RUNNER_OS" == "Windows" ]]; then RUNNER_TEMP=$(cygpath -u "$RUNNER_TEMP"); fi
           archive="$RUNNER_TEMP/gecko.tar.xz"
           curl -fsSL --retry 3 "$(jq -r .source_archive.url "$pin")" -o "$archive"
           echo "$(jq -r .source_archive.sha256 "$pin")  $archive" | sha256sum -c
           mkdir -p "$RUNNER_TEMP/gecko"
-          tar -xJf "$archive" --strip-components=1 --wildcards -C "$RUNNER_TEMP/gecko" '*/gfx/wr/*'
+          tar -xJf "$archive" --strip-components=1 -C "$RUNNER_TEMP/gecko" "firefox-$(jq -r .version "$pin")/gfx/wr"
       - name: Compare upstream and patched depth allocations
         run: bash tests/gecko/compare-depth.sh "$RUNNER_TEMP/gecko"
 
