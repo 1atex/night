@@ -58,7 +58,6 @@ jobs:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       MOZILLABUILD: C:\mozilla-build
-      MOZBUILD_STATE_PATH: C:\gecko-state
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,6 +68,9 @@ jobs:
           node-version: "22"
       - name: Check runner resources
         run: |
+          $runnerTemp = $env:RUNNER_TEMP.Replace('\', '/')
+          "NIGHT_GECKO_ROOT=$runnerTemp/gecko" >> $env:GITHUB_ENV
+          "MOZBUILD_STATE_PATH=$runnerTemp/gecko-state" >> $env:GITHUB_ENV
           Get-PSDrive -PSProvider FileSystem | Format-Table Name, Root, Used, Free
           Get-CimInstance Win32_ComputerSystem | Format-Table NumberOfLogicalProcessors, TotalPhysicalMemory
           rustc --version
@@ -76,19 +78,19 @@ jobs:
       - name: Cache Mozilla build toolchains
         uses: actions/cache@v4
         with:
-          path: C:\gecko-state
+          path: ${{ env.MOZBUILD_STATE_PATH }}
           key: gecko-windows-toolchains-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/windows.mozconfig') }}
       - name: Cache pinned source archive
         uses: actions/cache@v4
         with:
-          path: C:\gecko\source.tar.xz
+          path: ${{ env.NIGHT_GECKO_ROOT }}/source.tar.xz
           key: gecko-source-archive-${{ hashFiles('scripts/preview/runtime.json') }}
       - name: Cache compiled Gecko
         id: engine-cache
         if: inputs.phase != 'configure'
         uses: actions/cache@v4
         with:
-          path: C:\gecko\runtime\firefox
+          path: ${{ env.NIGHT_GECKO_ROOT }}/runtime/firefox
           key: gecko-windows-2025-x64-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/**') }}
       - name: Fetch and verify Gecko archive
         run: ./scripts/gecko/build-windows.ps1 -Phase archive
@@ -107,9 +109,9 @@ jobs:
       - name: Package candidate with Night
         if: inputs.phase != 'configure'
         run: |
-          python scripts/preview/package.py --source-build --platform windows_x64 --archive C:/gecko/source.tar.xz --runtime C:/gecko/runtime/firefox --output dist/Night
+          python scripts/preview/package.py --source-build --platform windows_x64 --archive "$env:NIGHT_GECKO_ROOT/source.tar.xz" --runtime "$env:NIGHT_GECKO_ROOT/runtime/firefox" --output dist/Night
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $builtHash = (Get-FileHash C:/gecko/runtime/firefox/xul.dll -Algorithm SHA256).Hash
+          $builtHash = (Get-FileHash "$env:NIGHT_GECKO_ROOT/runtime/firefox/xul.dll" -Algorithm SHA256).Hash
           if ((Get-FileHash dist/Night/runtime/xul.dll -Algorithm SHA256).Hash -ne $builtHash) { throw "Night does not contain the compiled Gecko binary" }
           $compiler = "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
           & $compiler /nologo /target:winexe /platform:x64 /codepage:65001 /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /win32icon:src/night/branding/night.ico /out:dist/Night/Night.exe scripts/preview/Launcher.cs scripts/preview/ProfileImport.cs scripts/preview/UpdateRunner.cs
@@ -123,7 +125,7 @@ jobs:
           $runtime = (Resolve-Path dist/Night/runtime).Path
           python tests/native/smoke.py --binary "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --preview --log test-artifacts/source-smoke.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tests/native/memory.py --stock C:/gecko/runtime/firefox/firefox.exe --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --profile-rendering
+          python tests/native/memory.py --stock "$env:NIGHT_GECKO_ROOT/runtime/firefox/firefox.exe" --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --profile-rendering
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Archive source candidate
         if: inputs.phase != 'configure'
@@ -141,7 +143,7 @@ jobs:
         if: always()
         run: |
           New-Item -ItemType Directory -Force test-artifacts | Out-Null
-          Get-ChildItem C:/gecko -Filter '*.log' -ErrorAction SilentlyContinue | Copy-Item -Destination test-artifacts
+          Get-ChildItem $env:NIGHT_GECKO_ROOT -Filter '*.log' -ErrorAction SilentlyContinue | Copy-Item -Destination test-artifacts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

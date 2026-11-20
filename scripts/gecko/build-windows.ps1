@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $repository = (Resolve-Path "$PSScriptRoot/../..").Path
-$root = 'C:/gecko'
+$root = $env:NIGHT_GECKO_ROOT
 $pin = Get-Content "$repository/scripts/preview/runtime.json" -Raw | ConvertFrom-Json
 $archive = "$root/source.tar.xz"
 $setup = "$root/MozillaBuild.exe"
