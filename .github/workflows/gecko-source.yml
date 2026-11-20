@@ -2,17 +2,19 @@ name: Gecko source candidate
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/gecko-source.yml"
-      - "scripts/gecko/**"
+    inputs:
+      phase:
+        description: Jobs to run
+        type: choice
+        options: [all, baseline, source]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   windows-baseline:
+    if: inputs.phase != 'source'
     runs-on: windows-2025
     timeout-minutes: 15
     env:
@@ -40,7 +42,7 @@ jobs:
           python -m pip install -r tests/native/requirements.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $runtime = (Resolve-Path dist/Night/runtime).Path
-          python tests/native/memory.py --stock "$env:RUNNER_TEMP/firefox/core/firefox.exe" --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --diagnostic
+          python tests/native/memory.py --stock "$env:RUNNER_TEMP/firefox/core/firefox.exe" --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --profile-rendering
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()
@@ -49,6 +51,7 @@ jobs:
           path: test-artifacts/
 
   windows-source:
+    if: inputs.phase != 'baseline'
     runs-on: windows-2025
     timeout-minutes: 300
     env:
@@ -92,7 +95,7 @@ jobs:
           $runtime = (Resolve-Path dist/Night/runtime).Path
           python tests/native/smoke.py --binary "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --preview --log test-artifacts/source-smoke.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tests/native/memory.py --stock C:/gecko/runtime/firefox/firefox.exe --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --diagnostic
+          python tests/native/memory.py --stock C:/gecko/runtime/firefox/firefox.exe --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --profile-rendering
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Archive source candidate
         run: |

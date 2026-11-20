@@ -203,8 +203,10 @@ def measure(binary, app_ini, url, output, label, diagnostic=False, profile=False
             """)
             assert loaded == 7, loaded
             runtime = browser.execute_script("""
+              const win = Services.wm.getMostRecentWindow('navigator:browser');
               return {version: Services.appinfo.version, gecko: Services.appinfo.platformVersion,
                 buildID: Services.appinfo.platformBuildID, locale: Services.locale.appLocaleAsBCP47,
+                compositor: win.windowUtils.layerManagerType, remoteCompositor: win.windowUtils.layerManagerRemote,
                 preallocated: Services.prefs.getIntPref('dom.ipc.processPrelaunch.fission.number', -1)};
             """)
             result = {"runtime": runtime, "startup_ms": startup_ms, "loaded_tabs": loaded, "idle": idle,
