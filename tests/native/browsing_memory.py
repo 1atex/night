@@ -14,7 +14,7 @@ from smoke import wait_for
 
 SITES = ["mail.example.org", "watch.example.net", "news.example.com"]
 TAB_SITES = [0, 1, 2, 0, 1, 0, 1]
-PROFILES = {"current": (4, -1), "reuse": (2, -1), "compact": (2, 3)}
+PROFILES = {"current": (4, -1), "reuse": (2, -1), "single": (1, -1), "compact": (2, 3)}
 
 
 class Fixture(BaseHTTPRequestHandler):
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("--binary", required=True)
     parser.add_argument("--app-ini", required=True)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["current", "reuse", "compact", "compact", "reuse", "current"])
+    parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["current", "reuse", "single", "single", "reuse", "current"])
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with ThreadingHTTPServer(("127.0.0.1", 0), Fixture) as server:

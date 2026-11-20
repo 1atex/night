@@ -316,7 +316,16 @@ window.addEventListener(
       };
       details.append(button("Обновить", () => {refreshDetails(); updateMetrics();}), tabDetails);
       refreshDetails();
-      const reserve = card("Резерв для новых вкладок");
+      const reserve = card("Процессы вкладок");
+      const siteLimitPref = "dom.ipc.processCount.webIsolated";
+      const limits = [[1, "1"], [2, "2"], [4, "4"]];
+      const savedLimit = Services.prefs.getIntPref(siteLimitPref, 2);
+      if (!limits.some(([value]) => value === savedLimit)) {
+        limits.push([savedLimit, String(savedLimit)]);
+      }
+      choice(reserve, "Процессов на один сайт",
+        "Меньше процессов экономит память, когда открыто несколько вкладок одного сайта. Больше процессов помогает тяжёлым вкладкам работать параллельно. Применяется при новых загрузках.",
+        siteLimitPref, limits, 2, true);
       toggle(reserve, "Готовить один процесс заранее", "Ускоряет открытие следующего сайта и занимает дополнительную память. Можно отключить; существующие страницы продолжат работать.", "dom.ipc.processPrelaunch.enabled", true);
       const policy = card("Неактивные вкладки");
       toggle(

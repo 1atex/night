@@ -90,6 +90,7 @@
   "night.ui.show-memory-status": false,
   "night.ui.show-tools": true,
   "dom.ipc.processPrelaunch.fission.number": 1,
+  "dom.ipc.processCount.webIsolated": 2,
   "night.ui.window-controls-autohide": true,
   "browser.startup.preXulSkeletonUI": false,
   "night.ui.address-details": false,

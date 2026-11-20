@@ -20,6 +20,13 @@ def run(binary, app_ini, output):
         browser.set_context('content')
         browser.navigate('about:preferences#memory')
         wait_for(lambda: browser.execute_script("return !!document.querySelector('[data-pref=\"dom.ipc.processPrelaunch.enabled\"]');"))
+        assert browser.execute_script("""
+          const limit = document.querySelector('[data-pref="dom.ipc.processCount.webIsolated"]');
+          const before = limit.value;
+          limit.value = "4";
+          limit.dispatchEvent(new Event("change", { bubbles: true }));
+          return before;
+        """) == "2"
         browser.execute_script("document.querySelector('[data-pref=\"dom.ipc.processPrelaunch.enabled\"]').click();")
         browser.set_context('chrome')
         wait_for(lambda: count()==0)
@@ -27,6 +34,7 @@ def run(binary, app_ini, output):
         browser.restart(in_app=True)
         browser.set_context('chrome')
         assert not browser.execute_script("return Services.prefs.getBoolPref('dom.ipc.processPrelaunch.enabled');")
+        assert browser.execute_script("return Services.prefs.getIntPref('dom.ipc.processCount.webIsolated');") == 4
         assert count()==0
         browser.execute_script("Services.prefs.setBoolPref('dom.ipc.processPrelaunch.enabled',true);")
         wait_for(lambda: count()==1)
