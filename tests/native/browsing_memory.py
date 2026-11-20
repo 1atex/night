@@ -47,16 +47,58 @@ class Fixture(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def measure(args, server, name, index):
-    limit, viewers = PROFILES[name]
+def browser(args, name, extra_prefs):
     prefs = {
-        "dom.ipc.processCount.webIsolated": limit, "browser.sessionhistory.max_total_viewers": viewers,
         "night.onboarding.completed": True, "night.memory.enabled": False,
         "network.dns.localDomains": ",".join(SITES), "network.proxy.type": 0,
         "dom.security.https_only_mode": False, "dom.security.https_first": False,
+        **extra_prefs,
     }
-    client = Marionette(bin=args.binary, app_args=["-app", args.app_ini], prefs=prefs, headless=False,
-                        gecko_log=str(args.output / f"browse-{index}-{name}.log"))
+    return Marionette(bin=args.binary, app_args=["-app", args.app_ini], prefs=prefs, headless=False,
+                      gecko_log=str(args.output / f"{name}.log"))
+
+
+def start(client):
+    client.start_session()
+    client.set_context("chrome")
+    wait_for(lambda: client.execute_script("return !!Services.wm.getMostRecentWindow('navigator:browser')?.gNightBrowser;"))
+    assert client.execute_script("return Services.appinfo.fissionAutostart;")
+
+
+def measure_idle(args, server, delay, index):
+    client = browser(args, f"idle-{index}", {"javascript.options.compact_on_user_inactive_delay": delay})
+    try:
+        start(client)
+        client.set_context("content")
+        for i, site in enumerate(SITES[:2]):
+            if i:
+                client.switch_to_window(client.open(type="tab")["handle"])
+            client.navigate(f"http://{site}:{server.server_port}/idle")
+            assert client.title == site
+        client.find_element("css selector", "h3").click()
+        client.set_context("chrome")
+        active = diagnostic_samples(client)
+        client.minimize_window()
+        time.sleep(60)
+        minimized = diagnostic_samples(client)
+        client.execute_script("Services.wm.getMostRecentWindow('navigator:browser').restore();")
+        client.set_context("content")
+        assert client.title == SITES[1]
+        opened = time.monotonic()
+        client.switch_to_window(client.open(type="tab")["handle"])
+        client.navigate(f"http://{SITES[2]}:{server.server_port}/resume")
+        assert client.title == SITES[2]
+        return {"delay_ms": delay, "active": active, "minimized": minimized,
+                "open_after_resume_ms": round(1000 * (time.monotonic() - opened))}
+    finally:
+        client.cleanup()
+
+
+def measure(args, server, name, index):
+    limit, viewers = PROFILES[name]
+    client = browser(args, f"browse-{index}-{name}", {
+        "dom.ipc.processCount.webIsolated": limit, "browser.sessionhistory.max_total_viewers": viewers,
+    })
     def snapshot():
         client.set_context("chrome")
         sample = diagnostic_samples(client)
@@ -82,10 +124,7 @@ def measure(args, server, name, index):
         assert client.title == SITES[site], client.title
 
     try:
-        client.start_session()
-        client.set_context("chrome")
-        wait_for(lambda: client.execute_script("return !!Services.wm.getMostRecentWindow('navigator:browser')?.gNightBrowser;"))
-        assert client.execute_script("return Services.appinfo.fissionAutostart;")
+        start(client)
         result = {"profile": name, "empty": snapshot()}
         handles, opens = [], []
         for i, site in enumerate(TAB_SITES):
@@ -133,10 +172,18 @@ if __name__ == "__main__":
     parser.add_argument("--app-ini", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["current", "reuse", "single", "single", "reuse", "current"])
+    parser.add_argument("--idle", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with ThreadingHTTPServer(("127.0.0.1", 0), Fixture) as server:
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        if args.idle:
+            for index, delay in enumerate([300000, 30000, 30000, 300000]):
+                result = measure_idle(args, server, delay, index)
+                (args.output / f"idle-{index}.json").write_text(json.dumps(result, indent=2))
+                print("delay", delay, "active", result["active"]["total"], "minimized", result["minimized"]["total"],
+                      "open after restore ms", result["open_after_resume_ms"], flush=True)
+            raise SystemExit(0)
         for index, name in enumerate(args.profiles):
             result = measure(args, server, name, index)
             (args.output / f"browse-{index}-{name}.json").write_text(json.dumps(result, indent=2))
