@@ -75,7 +75,7 @@ jobs:
           $output = (Resolve-Path dist/Night).Path
           python -u tests/native/onboarding.py --binary "$output/runtime/NightBrowser.exe" --app-ini "$output/runtime/browser/application.ini" --output test-artifacts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -u tests/native/installer.py --setup dist/night-browser-0.18.2-preview-windows-x64-setup.exe --output test-artifacts
+          python -u tests/native/installer.py --setup dist/night-browser-0.18.3-preview-windows-x64-setup.exe --output test-artifacts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test stale startup cache recovery
         run: |
@@ -245,15 +245,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Create portable archive
         run: |
-          7z a -tzip dist/night-browser-0.18.2-preview-windows-x64.zip ./dist/Night
+          7z a -tzip dist/night-browser-0.18.3-preview-windows-x64.zip ./dist/Night
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload tested downloads
         uses: actions/upload-artifact@v4
         with:
           name: night-browser-windows-x64-preview
           path: |
-            dist/night-browser-0.18.2-preview-windows-x64.zip
-            dist/night-browser-0.18.2-preview-windows-x64-setup.exe
+            dist/night-browser-0.18.3-preview-windows-x64.zip
+            dist/night-browser-0.18.3-preview-windows-x64-setup.exe
           compression-level: 0
           retention-days: 30
           if-no-files-found: error

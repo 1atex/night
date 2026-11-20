@@ -329,7 +329,7 @@ def package(runtime, output, archive, platform, source_build=False):
         "source": f"https://github.com/1atex/night/tree/{revision}",
     }, indent=2))
     (output / "README.txt").write_text(
-        "Night Browser 0.18.2 Preview\n\n"
+        "Night Browser 0.18.3 Preview\n\n"
         "Распакуй всю папку в доступное для записи место и запусти Night.exe.\n"
         "В portable-версии профиль хранится в папке profile рядом с Night.exe.\n"
         "После установки через setup профиль находится в %LOCALAPPDATA%\\NightBrowser\\profile.\n"
