@@ -174,6 +174,16 @@ def measure(args, server, name, index):
             seen.update(pids)
         return {"total": sample["total"], "roles": sample["roles"], "tabs": remote}
 
+    def restore_window():
+        client.execute_script("Services.wm.getMostRecentWindow('navigator:browser').restore();")
+
+    def background_sample():
+        client.minimize_window()
+        time.sleep(60)
+        sample = snapshot()
+        restore_window()
+        return sample
+
     def navigate(site, tab, page):
         client.set_context("content")
         client.navigate(f"http://{SITES[site]}:{server.server_port}/{tab}/{page}")
@@ -207,6 +217,8 @@ def measure(args, server, name, index):
             opens.append(round(1000 * (time.monotonic() - start)))
             if i == 1:
                 result["two_sites"] = snapshot()
+                if args.background:
+                    result["two_sites_minimized_60s"] = background_sample()
         result["opens_ms"] = opens
         result["seven_tabs"] = snapshot()
         assert len(result["seven_tabs"]["tabs"]) == 7
@@ -217,9 +229,13 @@ def measure(args, server, name, index):
                 navigate(site, i, page)
         result["after_navigation"] = snapshot()
         client.minimize_window()
+        minimized_at = time.monotonic()
         time.sleep(3)
         result["minimized"] = snapshot()
-        client.execute_script("Services.wm.getMostRecentWindow('navigator:browser').restore();")
+        if args.background:
+            time.sleep(max(0, minimized_at + 60 - time.monotonic()))
+            result["seven_tabs_minimized_60s"] = snapshot()
+        restore_window()
         backs = []
         for i, handle in enumerate(handles):
             client.switch_to_window(handle)
@@ -241,10 +257,11 @@ if __name__ == "__main__":
     parser.add_argument("--binary", required=True)
     parser.add_argument("--app-ini", required=True)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["previous", "default", "single", "single", "default", "previous"])
+    parser.add_argument("--profiles", nargs="+", choices=list(PROFILES))
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--idle", action="store_true")
     group.add_argument("--home", action="store_true")
+    group.add_argument("--background", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with local_sites() as server:
@@ -262,9 +279,14 @@ if __name__ == "__main__":
                 print("delay", delay, "active", result["active"]["total"], "minimized", result["minimized"]["total"],
                       "open after restore ms", result["open_after_resume_ms"], flush=True)
             raise SystemExit(0)
-        for index, name in enumerate(args.profiles):
+        profiles = args.profiles or (["previous", "default", "default", "previous"] if args.background
+                                    else ["previous", "default", "single", "single", "default", "previous"])
+        for index, name in enumerate(profiles):
             result = measure(args, server, name, index)
             (args.output / f"browse-{index}-{name}.json").write_text(json.dumps(result, indent=2))
+            if args.background:
+                print("After one minute", name, {phase: result[phase]["total"]["private_working_set_mib"] for phase in
+                      ("two_sites_minimized_60s", "seven_tabs_minimized_60s")}, flush=True)
             print(name, {phase: result[phase]["total"]["private_working_set_mib"] for phase in
                          ("home", "two_sites", "seven_tabs", "after_navigation", "minimized")},
                   "median open ms", statistics.median(result["opens_ms"][1:]),
