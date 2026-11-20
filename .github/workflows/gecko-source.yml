@@ -6,7 +6,7 @@ on:
       phase:
         description: Jobs to run
         type: choice
-        options: [all, baseline, source]
+        options: [all, baseline, source, configure]
         default: all
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   windows-baseline:
-    if: inputs.phase != 'source'
+    if: inputs.phase == 'baseline' || inputs.phase == 'all'
     runs-on: windows-2025
     timeout-minutes: 15
     env:
@@ -79,8 +79,9 @@ jobs:
           path: C:\gecko-state
           key: gecko-windows-toolchains-${{ hashFiles('scripts/preview/runtime.json', 'scripts/gecko/windows.mozconfig') }}
       - name: Compile pinned Gecko
-        run: ./scripts/gecko/build-windows.ps1
+        run: ./scripts/gecko/build-windows.ps1 -ConfigureOnly:('${{ inputs.phase }}' -eq 'configure')
       - name: Package candidate with Night
+        if: inputs.phase != 'configure'
         run: |
           python scripts/preview/package.py --source-build --platform windows_x64 --archive C:/gecko/source.tar.xz --runtime C:/gecko/runtime/firefox --output dist/Night
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -90,6 +91,7 @@ jobs:
           & $compiler /nologo /target:winexe /platform:x64 /codepage:65001 /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /win32icon:src/night/branding/night.ico /out:dist/Night/Night.exe scripts/preview/Launcher.cs scripts/preview/ProfileImport.cs scripts/preview/UpdateRunner.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check startup and browser behaviour
+        if: inputs.phase != 'configure'
         run: |
           python -m pip install -r tests/native/requirements.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -100,10 +102,12 @@ jobs:
           python tests/native/memory.py --stock C:/gecko/runtime/firefox/firefox.exe --night "$runtime/NightBrowser.exe" --app-ini "$runtime/browser/application.ini" --output test-artifacts --profile-rendering
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Archive source candidate
+        if: inputs.phase != 'configure'
         run: |
           7z a -tzip -mx=3 dist/night-gecko-source-windows-x64.zip ./dist/Night
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
+        if: inputs.phase != 'configure'
         with:
           name: night-gecko-source-windows-x64
           path: dist/night-gecko-source-windows-x64.zip

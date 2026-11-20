@@ -1,3 +1,5 @@
+param([switch] $ConfigureOnly)
+
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
@@ -30,6 +32,10 @@ $env:Path = "$msys;$env:MOZILLABUILD/bin;$env:Path"
 Copy-Item "$PSScriptRoot/windows.mozconfig" $env:MOZCONFIG
 Push-Location "$root/src"
 try {
+    if ($ConfigureOnly) {
+        python mach configure 2>&1 | Tee-Object -FilePath "$root/configure.log"
+        return
+    }
     python mach build 2>&1 | Tee-Object -FilePath "$root/build.log"
     python mach package 2>&1 | Tee-Object -FilePath "$root/package.log"
 } finally {
