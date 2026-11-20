@@ -152,3 +152,81 @@ driver memory and playback speed require separate measurements. The renderer
 job in `gecko-source.yml` runs the regression on the pinned standalone WebRender
 workspace. The Windows source job accepts `engine=night` and `engine=upstream`
 to package both versions using the same compiler configuration.
+
+## Whole-browser memory during navigation — 2026-11-20
+
+Night now uses up to two ordinary content processes per site by default. Seven
+loaded tabs across three distinct sites can use five content processes in the
+test below. Separate sites retain separate processes through Fission. The
+control in Settings → Memory changes the limit for subsequent page loads.
+One process per site saves more memory when tabs revisit the same sites, but
+long-running page scripts on the same site can then contend for one main
+thread. Four restores the previous limit.
+
+Night also skips 19 Activity Stream feeds whose widgets and sponsored content
+its own home page never displays. A fresh Windows profile went from 28 active
+feeds to nine. The two home-page runs measured 395–423 MiB with the feeds and
+390–393 MiB without them. The spread is too large to assign a fixed number of
+MiB to those feeds. [Home-page comparison](https://github.com/1atex/night/actions/runs/44669532012)
+
+The browsing workload uses a mail listing, a video catalogue and an article on
+three separate local sites. It opens seven tabs, performs two navigations in
+each, minimizes the window, then goes back in every tab. Automatic tab unloading
+is off. The workload verifies the tab count, process separation and whether each
+Back navigation restored the page from the history cache. Each memory sample is
+the sum of private resident memory across the browser process tree, including
+extensions and GPU processes. Each stage reports the median of five samples.
+
+The Windows run below repeats each configuration twice on a fresh profile, in
+forward and reverse order. The numbers are the mean of the two stage medians
+in MiB. The previous profile explicitly restores four processes and the old
+home feeds on the same packaged Night and Gecko binaries.
+
+| Stage | Previous defaults | New defaults | New defaults, one process per site |
+| --- | ---: | ---: | ---: |
+| Night home | 442.5 | 401.0 | 399.8 |
+| Two separate sites | 402.1 | 417.1 | 415.1 |
+| Seven loaded tabs | 450.0 | 418.9 | 394.8 |
+| Same tabs after 14 navigations | 484.9 | 450.0 | 426.5 |
+| Same tabs, 3–8 seconds after minimize | 497.3 | 392.7 | 367.4 |
+
+The seven tabs used seven, five and three site processes respectively. Every
+configuration restored seven of seven pages from the history cache. The
+two-site results varied by run, and this workload shows no reliable saving
+with two separate sites in the foreground. In the two-site foreground samples the parent process held 255–265 MiB,
+the GPU process held about 50 MiB, and both site processes together held about
+31 MiB. The immediate minimized results also include transient parent-process
+memory. These are local fixtures on a Windows
+runner with a fresh profile. Live sites, installed extensions and GPU drivers
+can materially change the result. [Run and raw per-process data](https://github.com/1atex/night/actions/runs/44669772215)
+
+In a further run each profile remained minimized for a full minute with two
+sites open, resumed browsing, then remained minimized again with seven tabs.
+The previous and new configurations ran in A–B–B–A order.
+
+| Private resident MiB after 60 seconds | Previous, first / second run | New defaults, first / second run |
+| --- | ---: | ---: |
+| Two different sites | 357.0 / 391.5 | 359.8 / 357.0 |
+| Seven tabs on three sites | 372.1 / 401.8 | 369.2 / 357.6 |
+
+For seven tabs the mean fell from 387.0 to 363.4 MiB at one minute. The
+roughly 105 MiB difference immediately after minimizing in the earlier run
+did not persist. The ranges for two sites overlap. Every tab was still loaded
+and all seven Back navigations used the history cache in each run.
+[One-minute background comparison](https://github.com/1atex/night/actions/runs/44670378846)
+
+To repeat the navigation and background comparisons with the same local
+fixtures, use the packaged executable and its application.ini:
+
+```powershell
+python tests/native/browsing_memory.py --binary C:/Night/runtime/NightBrowser.exe --app-ini C:/Night/runtime/browser/application.ini --output browse-results
+python tests/native/browsing_memory.py --binary C:/Night/runtime/NightBrowser.exe --app-ini C:/Night/runtime/browser/application.ini --output background-results --background
+```
+
+A separate experiment capped the history cache at three viewers. Only two of
+seven Back navigations restored a cached page, compared with seven of seven at
+the normal limit. Night keeps the normal limit. Shortening the SpiderMonkey
+idle collection delay from five minutes to 30 seconds also produced overlapping
+results with two minimized tabs on Windows, so Night keeps the default delay.
+[History cache comparison](https://github.com/1atex/night/actions/runs/44668375044) ·
+[Idle collection comparison](https://github.com/1atex/night/actions/runs/44669123643)
