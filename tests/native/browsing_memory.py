@@ -81,7 +81,7 @@ def browser(args, name, extra_prefs):
                       gecko_log=str(args.output / f"{name}.log"))
 
 
-def start(client):
+def start_browser(client):
     client.start_session()
     client.set_context("chrome")
     wait_for(lambda: client.execute_script("return !!Services.wm.getMostRecentWindow('navigator:browser')?.gNightBrowser;"))
@@ -92,7 +92,7 @@ def measure_home(args, server, legacy_feeds, index):
     prefs = legacy_preferences() if legacy_feeds else {}
     client = browser(args, f"home-{index}", prefs)
     try:
-        start(client)
+        start_browser(client)
         client.set_context("content")
         client.navigate("about:home")
         wait_for(lambda: client.execute_script("return !!document.getElementById('query');"))
@@ -123,7 +123,7 @@ def measure_home(args, server, legacy_feeds, index):
 def measure_idle(args, server, delay, index):
     client = browser(args, f"idle-{index}", {"javascript.options.compact_on_user_inactive_delay": delay})
     try:
-        start(client)
+        start_browser(client)
         client.set_context("content")
         for i, site in enumerate(SITES[:2]):
             if i:
@@ -180,7 +180,7 @@ def measure(args, server, name, index):
         assert client.title == SITES[site], client.title
 
     try:
-        start(client)
+        start_browser(client)
         client.set_context("content")
         client.navigate("about:home")
         wait_for(lambda: client.execute_script("return !!document.querySelector('#query');"))
