@@ -14,7 +14,16 @@ from smoke import wait_for
 
 SITES = ["mail.example.org", "watch.example.net", "news.example.com"]
 TAB_SITES = [0, 1, 2, 0, 1, 0, 1]
-PROFILES = {"current": (4, -1), "reuse": (2, -1), "single": (1, -1), "compact": (2, 3)}
+PROFILES = {"previous": (4, -1), "default": (None, None), "reuse": (2, -1),
+            "single": (1, -1), "compact": (2, 3)}
+LEGACY_WIDGETS = """discoverystreamfeed sectionslayoutfeed wallpaperfeed weatherfeed webnotificationsfeed
+    stocksfeed adsfeed inferredpersonalizationfeed smartshortcutsfeed newtabattributionfeed
+    newtabmessaging listsfeed privacyfeed recentsearchesfeed pictureofthedayfeed timerfeed
+    travelfeed externalcomponentsfeed extensionwidgetsfeed""".split()
+
+
+def legacy_preferences():
+    return {f"browser.newtabpage.activity-stream.feeds.{name}": True for name in LEGACY_WIDGETS}
 
 
 class Fixture(BaseHTTPRequestHandler):
@@ -66,11 +75,7 @@ def start(client):
 
 
 def measure_home(args, server, legacy_feeds, index):
-    unused = """discoverystreamfeed sectionslayoutfeed wallpaperfeed weatherfeed webnotificationsfeed
-        stocksfeed adsfeed inferredpersonalizationfeed smartshortcutsfeed newtabattributionfeed
-        newtabmessaging listsfeed privacyfeed recentsearchesfeed pictureofthedayfeed timerfeed
-        travelfeed externalcomponentsfeed extensionwidgetsfeed""".split()
-    prefs = {f"browser.newtabpage.activity-stream.feeds.{name}": True for name in unused} if legacy_feeds else {}
+    prefs = legacy_preferences() if legacy_feeds else {}
     client = browser(args, f"home-{index}", prefs)
     try:
         start(client)
@@ -86,7 +91,7 @@ def measure_home(args, server, legacy_feeds, index):
         wait_for(lambda: "feeds.system.topsites" in feeds(), timeout=45)
         time.sleep(3)
         names = feeds()
-        expected = {"feeds." + name for name in unused}
+        expected = {"feeds." + name for name in LEGACY_WIDGETS}
         assert (expected.issubset(names) if legacy_feeds else expected.isdisjoint(names)), names
         home = diagnostic_samples(client)
         client.set_context("content")
@@ -132,9 +137,10 @@ def measure_idle(args, server, delay, index):
 
 def measure(args, server, name, index):
     limit, viewers = PROFILES[name]
-    client = browser(args, f"browse-{index}-{name}", {
-        "dom.ipc.processCount.webIsolated": limit, "browser.sessionhistory.max_total_viewers": viewers,
-    })
+    prefs = legacy_preferences() if name == "previous" else {}
+    if limit is not None:
+        prefs.update({"dom.ipc.processCount.webIsolated": limit, "browser.sessionhistory.max_total_viewers": viewers})
+    client = browser(args, f"browse-{index}-{name}", prefs)
     def snapshot():
         client.set_context("chrome")
         sample = diagnostic_samples(client)
@@ -161,7 +167,15 @@ def measure(args, server, name, index):
 
     try:
         start(client)
-        result = {"profile": name, "empty": snapshot()}
+        client.set_context("content")
+        client.navigate("about:home")
+        wait_for(lambda: client.execute_script("return !!document.querySelector('#query');"))
+        client.set_context("chrome")
+        wait_for(lambda: client.execute_script("""
+          const { AboutNewTab } = ChromeUtils.importESModule("resource:///modules/AboutNewTab.sys.mjs");
+          return AboutNewTab.activityStream?.store.feeds.has("feeds.system.topsites");
+        """), timeout=45)
+        result = {"profile": name, "home": snapshot()}
         handles, opens = [], []
         for i, site in enumerate(TAB_SITES):
             start = time.monotonic()
@@ -207,7 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--binary", required=True)
     parser.add_argument("--app-ini", required=True)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["current", "reuse", "single", "single", "reuse", "current"])
+    parser.add_argument("--profiles", nargs="+", choices=list(PROFILES), default=["previous", "default", "single", "single", "default", "previous"])
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--idle", action="store_true")
     group.add_argument("--home", action="store_true")
@@ -233,6 +247,6 @@ if __name__ == "__main__":
             result = measure(args, server, name, index)
             (args.output / f"browse-{index}-{name}.json").write_text(json.dumps(result, indent=2))
             print(name, {phase: result[phase]["total"]["private_working_set_mib"] for phase in
-                         ("empty", "two_sites", "seven_tabs", "after_navigation", "minimized")},
+                         ("home", "two_sites", "seven_tabs", "after_navigation", "minimized")},
                   "median open ms", statistics.median(result["opens_ms"][1:]),
                   "back-cache hits", sum(row["cached"] for row in result["backs"]), flush=True)
